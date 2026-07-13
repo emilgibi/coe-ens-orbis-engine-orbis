@@ -17,7 +17,7 @@ import {
 import {
   getAddressImages,
   getPlaceDetails
-} from '../controllers/mapController.js';
+} from '../controllers/mapCOntroller.js';
 import {
   validateOrg,
   validatePayload,
