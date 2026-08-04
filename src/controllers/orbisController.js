@@ -2,6 +2,7 @@ import { getOrbisData } from "../mock/orbis.js";
 import { updateInternalOrgDataService } from "../services/internalOrgModel.js";
 import { handleResponse } from "../utils/helpers.js";
 import { updatedinsertTable, updateTable, updatedinsertTable2, doesDataExist } from "../utils/db_utils.js";
+import { getCachedOrbisMasterData, getCachedGridManagementData, matchLiveApiJsonFormat } from "../utils/cache_lookup.js";
 import { v4 as uuidv4 } from "uuid";
 import pool from "../config/db.js";
 import crypto from 'crypto';
@@ -365,6 +366,104 @@ export const getOrbisCompanyData = async (req, res) => {
     if (!bvdId || !ensId || !sessionId) {
         return res.status(400).json({ error: 'Missing required query parameters: bvdId, ensId, sessionId' });
     }
+
+    // ── Pre-fetched cache check ──────────────────────────────────────
+    // orbis_master_data is populated ahead of time by the PythonProject
+    // batch script for entities whose live Orbis API access may stop
+    // working. If this bvd_id was pre-fetched, use it directly instead
+    // of calling the (possibly retired) live Moody's Orbis API — same
+    // response shape, same external_supplier_data write, same
+    // downstream behavior (name validation / confirmation / analysis
+    // all continue exactly as before, since nothing past this point
+    // changes). Falls through to the existing live-API call below if
+    // there's no cache hit, so this is purely additive.
+    const cachedCompanyData = await getCachedOrbisMasterData(bvdId);
+    if (cachedCompanyData) {
+        console.log(`getOrbisCompanyData: cache hit for bvdId=${bvdId}, using pre-fetched data`);
+
+        const cachedResponse = {
+            name: cachedCompanyData.name ?? null,
+            country: cachedCompanyData.country ?? null,
+            location: cachedCompanyData.location ?? null,
+            address: cachedCompanyData.address ?? null,
+            is_active: cachedCompanyData.is_active ?? null,
+            operation_type: cachedCompanyData.operation_type ?? null,
+            website: cachedCompanyData.website ?? null,
+            no_of_employee: cachedCompanyData.no_of_employee ?? null,
+            legal_form: cachedCompanyData.legal_form ?? null,
+            bvd_id: cachedCompanyData.bvd_id ?? null,
+            national_identifier_type: matchLiveApiJsonFormat(cachedCompanyData.national_identifier_type),
+            national_identifier: matchLiveApiJsonFormat(cachedCompanyData.national_identifier),
+            alias: matchLiveApiJsonFormat(cachedCompanyData.alias),
+            incorporation_date: cachedCompanyData.incorporation_date ?? null,
+            num_subsidiaries: cachedCompanyData.num_subsidiaries ?? null,
+            num_companies_in_corp_grp: cachedCompanyData.num_companies_in_corp_grp ?? null,
+            num_direct_shareholders: cachedCompanyData.num_direct_shareholders ?? null,
+            operating_revenue: matchLiveApiJsonFormat(cachedCompanyData.operating_revenue),
+            profit_loss_after_tax: matchLiveApiJsonFormat(cachedCompanyData.profit_loss_after_tax),
+            ebitda: matchLiveApiJsonFormat(cachedCompanyData.ebitda),
+            current_ratio: matchLiveApiJsonFormat(cachedCompanyData.current_ratio),
+            roe_using_net_income: matchLiveApiJsonFormat(cachedCompanyData.roe_using_net_income),
+            pr_qualitative_score: cachedCompanyData.pr_qualitative_score ?? null,
+            pr_more_risk_score: cachedCompanyData.pr_more_risk_score ?? null,
+            pr_reactive_more_risk_score: cachedCompanyData.pr_reactive_more_risk_score ?? null,
+            pr_qualitative_score_date: cachedCompanyData.pr_qualitative_score_date ?? null,
+            pr_more_risk_score_date: cachedCompanyData.pr_more_risk_score_date ?? null,
+            pr_reactive_more_risk_score_date: cachedCompanyData.pr_reactive_more_risk_score_date ?? null,
+            esg_overall_rating: cachedCompanyData.esg_overall_rating ?? null,
+            esg_environmental_rating: cachedCompanyData.esg_environmental_rating ?? null,
+            esg_social_rating: cachedCompanyData.esg_social_rating ?? null,
+            esg_governance_rating: cachedCompanyData.esg_governance_rating ?? null,
+            esg_date: cachedCompanyData.esg_date ?? null,
+            cyber_risk_score: cachedCompanyData.cyber_risk_score ?? null,
+            cyber_botnet_infection: cachedCompanyData.cyber_botnet_infection ?? null,
+            cyber_malware_servers: cachedCompanyData.cyber_malware_servers ?? null,
+            cyber_ssl_certificate: cachedCompanyData.cyber_ssl_certificate ?? null,
+            cyber_webpage_headers: cachedCompanyData.cyber_webpage_headers ?? null,
+            cyber_date: cachedCompanyData.cyber_date ?? null,
+            implied_cyber_risk_score: cachedCompanyData.implied_cyber_risk_score ?? null,
+            implied_cyber_risk_score_date: cachedCompanyData.implied_cyber_risk_score_date ?? null,
+            beneficial_owners: matchLiveApiJsonFormat(cachedCompanyData.beneficial_owners),
+            global_ultimate_owner: matchLiveApiJsonFormat(cachedCompanyData.global_ultimate_owner),
+            shareholders: matchLiveApiJsonFormat(cachedCompanyData.shareholders),
+            ultimately_owned_subsidiaries: matchLiveApiJsonFormat(cachedCompanyData.ultimately_owned_subsidiaries),
+            other_ultimate_beneficiary: matchLiveApiJsonFormat(cachedCompanyData.other_ultimate_beneficiary),
+            solvency_ratio: matchLiveApiJsonFormat(cachedCompanyData.solvency_ratio),
+            roce_before_tax: matchLiveApiJsonFormat(cachedCompanyData.roce_before_tax),
+            profit_margin: matchLiveApiJsonFormat(cachedCompanyData.profit_margin),
+            shareholders_fund: matchLiveApiJsonFormat(cachedCompanyData.shareholders_fund),
+            total_assets: matchLiveApiJsonFormat(cachedCompanyData.total_assets),
+            cash_flow: matchLiveApiJsonFormat(cachedCompanyData.cash_flow),
+            roe_before_tax: matchLiveApiJsonFormat(cachedCompanyData.roe_before_tax),
+            pl_before_tax: matchLiveApiJsonFormat(cachedCompanyData.pl_before_tax),
+            controlling_shareholders: matchLiveApiJsonFormat(cachedCompanyData.controlling_shareholders),
+            Beneficial_owners_intermediatory: matchLiveApiJsonFormat(cachedCompanyData.beneficial_owners_intermediatory),
+            management: matchLiveApiJsonFormat(cachedCompanyData.management),
+            global_ultimate_owner_type: matchLiveApiJsonFormat(cachedCompanyData.global_ultimate_owner_type),
+            controlling_shareholders_type: matchLiveApiJsonFormat(cachedCompanyData.controlling_shareholders_type),
+            pr_more_risk_score_ratio: matchLiveApiJsonFormat(cachedCompanyData.pr_more_risk_score_ratio),
+            pr_reactive_more_risk_score_ratio: matchLiveApiJsonFormat(cachedCompanyData.pr_reactive_more_risk_score_ratio),
+            default_events: matchLiveApiJsonFormat(cachedCompanyData.default_events),
+            long_and_short_term_debt: cachedCompanyData.long_and_short_term_debt ?? null,
+            long_term_debt: cachedCompanyData.long_term_debt ?? null,
+            total_shareholders_equity: cachedCompanyData.total_shareholders_equity ?? null,
+            operating_revenue_usd: matchLiveApiJsonFormat(cachedCompanyData.operating_revenue_usd),
+            ens_id: ensId,
+            session_id: sessionId,
+        };
+
+        try {
+            const tableName = "external_supplier_data";
+            const insertedResponse = await updatedinsertTable(tableName, cachedResponse, ensId, sessionId);
+            if (!insertedResponse) {
+                return res.status(409).json({ success: false, message: "Failed to save cached data to database", data: cachedResponse });
+            }
+            return res.status(200).json({ success: true, message: "Successfully saved data (from cache)", data: insertedResponse });
+        } catch (error) {
+            return res.status(409).json({ success: false, message: error.message, data: cachedResponse });
+        }
+    }
+    // ── End cache check — no cache hit, fall through to live API below ──
 
     const endpoint = `https://api.bvdinfo.com/v1/orbis/Companies/data`;
     const query = {
@@ -943,10 +1042,55 @@ export const getOrbisCompanyData = async (req, res) => {
 
 export const getGridData = async (req, res) => {
 
+    const { orgName, sessionId, ensId, city, bvdId, country } = req.query;
+
+    // ── Pre-fetched cache check ── see getOrbisCompanyData for the full
+    // explanation. Placed before ensureValidToken() below since a cache
+    // hit doesn't need a live Grid API token at all.
+    // NOTE: orbis_master_data's grid_event_*/grid_legal columns already
+    // hold the MERGED result of both grid-by-name (this function) and
+    // grid-by-id (getGridDataOrganizationWithId) lookups — see
+    // format_orbis_master_data() in data_moodys.py. Both cache-hit paths
+    // therefore write the same merged data; the second call is a
+    // harmless no-op overwrite of identical values, matching how the
+    // live-API versions of these two calls already converge on the same
+    // external_supplier_data columns.
+    const cachedCompanyData = await getCachedOrbisMasterData(bvdId);
+    if (cachedCompanyData) {
+        console.log(`getGridData: cache hit for bvdId=${bvdId}, using pre-fetched data`);
+        const response = {
+            grid_event_sanctions: matchLiveApiJsonFormat(cachedCompanyData.grid_event_sanctions),
+            grid_event_regulatory: matchLiveApiJsonFormat(cachedCompanyData.grid_event_regulatory),
+            grid_event_bribery_fraud_corruption: matchLiveApiJsonFormat(cachedCompanyData.grid_event_bribery_fraud_corruption),
+            grid_event_pep: matchLiveApiJsonFormat(cachedCompanyData.grid_event_pep),
+            grid_event_adverse_media_other_crimes: matchLiveApiJsonFormat(cachedCompanyData.grid_event_adverse_media_other_crimes),
+            grid_event_adverse_media_reputational_risk: matchLiveApiJsonFormat(cachedCompanyData.grid_event_adverse_media_reputational_risk),
+            grid_legal: matchLiveApiJsonFormat(cachedCompanyData.grid_legal),
+        };
+        const isAllNull = Object.values(response).every((value) => value === null);
+        if (isAllNull) {
+            return res.status(200).json({ success: true, message: "No data available", data: false, adv_count: 0 });
+        }
+        try {
+            const tableName = "external_supplier_data";
+            const crimes = JSON.parse(response.grid_event_adverse_media_other_crimes || "[]");
+            const reputationalRisk = JSON.parse(response.grid_event_adverse_media_reputational_risk || "[]");
+            const count = (Array.isArray(crimes) ? crimes.length : 0) +
+                          (Array.isArray(reputationalRisk) ? reputationalRisk.length : 0);
+            const updatedResponse = await updateTable(tableName, response, ensId, sessionId);
+            return res.status(200).json(
+                updatedResponse.success
+                    ? { success: true, message: "Successfully Updated Information (from cache)", data: updatedResponse.data, adv_count: count }
+                    : { success: false, message: updatedResponse.message, data: false, adv_count: 0 }
+            );
+        } catch (error) {
+            return res.status(500).json({ success: false, error: 'Internal server error.', details: error.message, data: false, adv_count: 0 });
+        }
+    }
+    // ── End cache check ──
+
     // Ensure token is valid before making request
     await ensureValidToken();
-
-    const { orgName, sessionId, ensId, city, bvdId, country } = req.query;
 
     const url = "https://service.rdc.eu.com/api/grid-service/v2/inquiry";
     const action = "post"
@@ -1182,7 +1326,38 @@ export const getOrbisGridData = async (req, res) => {
     if (!sessionId || !ensId ||!bvdId) {
         return res.status(400).json({success:false, error: 'Missing required query parameters: orgName, reportingId, trackingId, city', data:false, adv_count:0 });
     }
-  
+
+    // ── Pre-fetched cache check ── see getOrbisCompanyData for the full explanation.
+    const cachedCompanyData = await getCachedOrbisMasterData(bvdId);
+    if (cachedCompanyData) {
+        console.log(`getOrbisGridData: cache hit for bvdId=${bvdId}, using pre-fetched data`);
+        const response = {
+            event_sanctions: matchLiveApiJsonFormat(cachedCompanyData.event_sanctions),
+            event_regulatory: matchLiveApiJsonFormat(cachedCompanyData.event_regulatory),
+            event_bribery_fraud_corruption: matchLiveApiJsonFormat(cachedCompanyData.event_bribery_fraud_corruption),
+            event_pep: matchLiveApiJsonFormat(cachedCompanyData.event_pep),
+            event_adverse_media_other_crimes: matchLiveApiJsonFormat(cachedCompanyData.event_adverse_media_other_crimes),
+            event_adverse_media_reputational_risk: matchLiveApiJsonFormat(cachedCompanyData.event_adverse_media_reputational_risk),
+            legal: matchLiveApiJsonFormat(cachedCompanyData.legal),
+        };
+        const isAllNull = Object.values(response).every((value) => value === null);
+        if (isAllNull) {
+            return res.status(200).json({ success: true, message: "No data available", data: false, adv_count: 0 });
+        }
+        try {
+            const tableName = "external_supplier_data";
+            const crimes = JSON.parse(response.event_adverse_media_other_crimes || "[]");
+            const reputationalRisk = JSON.parse(response.event_adverse_media_reputational_risk || "[]");
+            const count = (Array.isArray(crimes) ? crimes.length : 0) +
+                          (Array.isArray(reputationalRisk) ? reputationalRisk.length : 0);
+            const updatedResponse = await updateTable(tableName, response, ensId, sessionId);
+            return res.status(200).json({ success: true, message: "Successfully Updated Information (from cache)", data: updatedResponse.data, adv_count: count });
+        } catch (error) {
+            return res.status(409).json({ success: false, message: error.message, data: false, adv_count: 0 });
+        }
+    }
+    // ── End cache check ──
+
     const endpoint = `https://api.bvdinfo.com/v1/orbis/gridreview/data`;
 
     const bcf = ['BRB', 'CFT', 'CON', 'FRD', 'MLA', 'MOR', 'MSB', 'RES', 'TAX']
@@ -1286,11 +1461,78 @@ export const getOrbisGridData = async (req, res) => {
 
   export const getGridDataPersonnels = async (req, res) => {
     console.log("----Start Grid Personnel----")
-    // Ensure token is valid before making request
-    await ensureValidToken();
 
     const { personnelName, sessionId, ensId, contactId, country, city, managementInfo } = req.body;
 
+    // ── Pre-fetched cache check ──────────────────────────────────────
+    // grid_management_master (keyed globally on contact_id, unlike the
+    // production grid_management table which is keyed per
+    // (ens_id, contact_id, session_id)) is populated by the same
+    // PythonProject batch script. See getOrbisCompanyData for the full
+    // explanation of the caching approach.
+    const cachedPersonnelData = await getCachedGridManagementData(contactId);
+    if (cachedPersonnelData) {
+        console.log(`getGridDataPersonnels: cache hit for contactId=${contactId}, using pre-fetched data`);
+        const grid_sanctions = matchLiveApiJsonFormat(cachedPersonnelData.grid_sanctions);
+        const grid_regulatory = matchLiveApiJsonFormat(cachedPersonnelData.grid_regulatory);
+        const grid_bribery_fraud_corruption = matchLiveApiJsonFormat(cachedPersonnelData.grid_bribery_fraud_corruption);
+        const grid_pep = matchLiveApiJsonFormat(cachedPersonnelData.grid_pep);
+        const grid_adverse_media_other_crimes = matchLiveApiJsonFormat(cachedPersonnelData.grid_adverse_media_other_crimes);
+        const grid_adverse_media_reputational_risk = matchLiveApiJsonFormat(cachedPersonnelData.grid_adverse_media_reputational_risk);
+        const grid_legal = matchLiveApiJsonFormat(cachedPersonnelData.grid_legal);
+        // management_info from the cache is used as a fallback only —
+        // the live request's own managementInfo (passed in from the
+        // orchestration, reflecting this specific session's company
+        // data) is authoritative when present, same as the live-API
+        // path would naturally produce.
+        const management_info_value = managementInfo ?? matchLiveApiJsonFormat(cachedPersonnelData.management_info);
+
+        try {
+            const result = await pool.query(
+              `INSERT INTO grid_management (
+                ens_id,
+                contact_id,
+                session_id,
+                grid_sanctions,
+                grid_regulatory,
+                grid_bribery_fraud_corruption,
+                grid_pep,
+                grid_adverse_media_other_crimes,
+                grid_adverse_media_reputational_risk,
+                management_info,
+                grid_legal
+              ) VALUES (
+                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11
+              )
+              ON CONFLICT (ens_id, contact_id, session_id)
+              DO UPDATE SET
+                grid_sanctions = EXCLUDED.grid_sanctions,
+                grid_regulatory = EXCLUDED.grid_regulatory,
+                grid_bribery_fraud_corruption = EXCLUDED.grid_bribery_fraud_corruption,
+                grid_pep = EXCLUDED.grid_pep,
+                grid_adverse_media_other_crimes = EXCLUDED.grid_adverse_media_other_crimes,
+                grid_adverse_media_reputational_risk = EXCLUDED.grid_adverse_media_reputational_risk,
+                grid_legal = EXCLUDED.grid_legal,
+                management_info = EXCLUDED.management_info,
+                update_time = NOW()
+              RETURNING *;`,
+              [ensId, contactId, sessionId, grid_sanctions, grid_regulatory, grid_bribery_fraud_corruption, grid_pep, grid_adverse_media_other_crimes, grid_adverse_media_reputational_risk, management_info_value, grid_legal]
+            );
+            const crimes = JSON.parse(grid_adverse_media_other_crimes || "[]");
+            const reputationalRisk = JSON.parse(grid_adverse_media_reputational_risk || "[]");
+            const count = (Array.isArray(crimes) ? crimes.length : 0) +
+                          (Array.isArray(reputationalRisk) ? reputationalRisk.length : 0);
+            console.log("----Ended Grid Personnel (from cache)----")
+            return res.status(200).json({ success: true, message: "Successfully saved data (from cache)", data: result.rows, adv_count: count });
+        } catch (error) {
+            console.log("----Error(409) Grid Personnel (cache path):----", error)
+            return res.status(409).json({ success: false, message: error.message, data: "couldnt save data", adv_count: 0 });
+        }
+    }
+    // ── End cache check ──
+
+    // Ensure token is valid before making request
+    await ensureValidToken();
 
     const url = "https://service.rdc.eu.com/api/grid-service/v2/inquiry";
 
@@ -1473,14 +1715,51 @@ export const getOrbisGridData = async (req, res) => {
 
 export const getGridDataOrganizationWithId = async (req, res) => {
 
-  // Ensure token is valid before making request
-  await ensureValidToken();
-
   const { sessionId, ensId, bvdId} = req.query;
 
   if (!sessionId || !ensId|| !bvdId) {
       return res.status(400).json({ success: false, data: false,error: 'Missing required query parameters.', adv_count:0 });
   }
+
+  // ── Pre-fetched cache check ── see getOrbisCompanyData / getGridData
+  // for the full explanation (same merged grid_event_*/grid_legal
+  // source as the by-name lookup above).
+  const cachedCompanyData = await getCachedOrbisMasterData(bvdId);
+  if (cachedCompanyData) {
+      console.log(`getGridDataOrganizationWithId: cache hit for bvdId=${bvdId}, using pre-fetched data`);
+      const categorizedData = {
+          grid_event_sanctions: matchLiveApiJsonFormat(cachedCompanyData.grid_event_sanctions),
+          grid_event_regulatory: matchLiveApiJsonFormat(cachedCompanyData.grid_event_regulatory),
+          grid_event_bribery_fraud_corruption: matchLiveApiJsonFormat(cachedCompanyData.grid_event_bribery_fraud_corruption),
+          grid_event_pep: matchLiveApiJsonFormat(cachedCompanyData.grid_event_pep),
+          grid_event_adverse_media_other_crimes: matchLiveApiJsonFormat(cachedCompanyData.grid_event_adverse_media_other_crimes),
+          grid_event_adverse_media_reputational_risk: matchLiveApiJsonFormat(cachedCompanyData.grid_event_adverse_media_reputational_risk),
+          grid_legal: matchLiveApiJsonFormat(cachedCompanyData.grid_legal),
+      };
+      const isAllNull = Object.values(categorizedData).every((value) => value === null);
+      if (isAllNull) {
+          return res.status(200).json({ success: true, message: "No data available", data: false, adv_count: 0 });
+      }
+      try {
+          const tableName = "external_supplier_data";
+          const crimes = JSON.parse(categorizedData.grid_event_adverse_media_other_crimes || "[]");
+          const reputationalRisk = JSON.parse(categorizedData.grid_event_adverse_media_reputational_risk || "[]");
+          const count = (Array.isArray(crimes) ? crimes.length : 0) +
+                       (Array.isArray(reputationalRisk) ? reputationalRisk.length : 0);
+          const updatedResponse = await updateTable(tableName, categorizedData, ensId, sessionId);
+          return res.status(200).json(
+              updatedResponse.success
+                  ? { success: true, message: "Successfully Updated Information (from cache)", data: updatedResponse.data, adv_count: count }
+                  : { success: false, message: updatedResponse.message, data: updatedResponse.data }
+          );
+      } catch (error) {
+          return res.status(500).json({ success: true, error: 'Internal server error.', details: error.message, data: false});
+      }
+  }
+  // ── End cache check ──
+
+  // Ensure token is valid before making request
+  await ensureValidToken();
 
   const url = "https://service.rdc.eu.com/api/grid-service/v2/id-lookup/id-types/115/grid-entities";
   const action="get"
@@ -1647,6 +1926,23 @@ export const getGridDataPersonnelWithId = async (req, res) => {
 
 export const getOrbisNews = async (req, res) => {
     const { bvdId, sessionId, ensId} = req.query;
+
+    // ── Pre-fetched cache check ── see getOrbisCompanyData for the full explanation.
+    const cachedCompanyData = await getCachedOrbisMasterData(bvdId);
+    if (cachedCompanyData) {
+        console.log(`getOrbisNews: cache hit for bvdId=${bvdId}, using pre-fetched data`);
+        const response = {
+            orbis_news: matchLiveApiJsonFormat(cachedCompanyData.orbis_news),
+        };
+        try {
+            const tableName = "external_supplier_data";
+            const insertedResponse = await updateTable(tableName, response, ensId, sessionId);
+            return res.status(200).json({ success: true, message: "Successfully saved data (from cache)", data: insertedResponse });
+        } catch (error) {
+            return res.status(409).json({ success: false, message: error.message, data: false });
+        }
+    }
+    // ── End cache check ──
 
     const endpoint = "https://api.bvdinfo.com/v1/orbis/news/data";
     const date = new Date().toISOString().split("T")[0];
@@ -1910,5 +2206,3 @@ function getRandomUnderscore3() {
   }
   return '_' + randomPart;
 }
-
-
