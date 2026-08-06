@@ -368,18 +368,10 @@ export const getOrbisCompanyData = async (req, res) => {
     }
 
     // ── Pre-fetched cache check ──────────────────────────────────────
-    // orbis_master_data is populated ahead of time by the PythonProject
-    // batch script for entities whose live Orbis API access may stop
-    // working. If this bvd_id was pre-fetched, use it directly instead
-    // of calling the (possibly retired) live Moody's Orbis API — same
-    // response shape, same external_supplier_data write, same
-    // downstream behavior (name validation / confirmation / analysis
-    // all continue exactly as before, since nothing past this point
-    // changes). Falls through to the existing live-API call below if
-    // there's no cache hit, so this is purely additive.
+    console.log(`[DATA-SOURCE] Step 2 (Company Data) — checking cache before calling live API — bvdId=${bvdId}`);
     const cachedCompanyData = await getCachedOrbisMasterData(bvdId);
     if (cachedCompanyData) {
-        console.log(`getOrbisCompanyData: cache hit for bvdId=${bvdId}, using pre-fetched data`);
+        console.log(`[DATA-SOURCE] Step 2 (Company Data) — SERVING FROM DATABASE — live Orbis API call skipped — bvdId=${bvdId}`);
 
         const cachedResponse = {
             name: cachedCompanyData.name ?? null,
@@ -456,13 +448,17 @@ export const getOrbisCompanyData = async (req, res) => {
             const tableName = "external_supplier_data";
             const insertedResponse = await updatedinsertTable(tableName, cachedResponse, ensId, sessionId);
             if (!insertedResponse) {
+                console.log(`[DATA-SOURCE] Step 2 (Company Data) — DB write of cached data FAILED — bvdId=${bvdId}`);
                 return res.status(409).json({ success: false, message: "Failed to save cached data to database", data: cachedResponse });
             }
+            console.log(`[DATA-SOURCE] Step 2 (Company Data) — DB write of cached data SUCCEEDED — bvdId=${bvdId}`);
             return res.status(200).json({ success: true, message: "Successfully saved data (from cache)", data: insertedResponse });
         } catch (error) {
+            console.log(`[DATA-SOURCE] Step 2 (Company Data) — DB write of cached data THREW an error — bvdId=${bvdId}:`, error);
             return res.status(409).json({ success: false, message: error.message, data: cachedResponse });
         }
     }
+    console.log(`[DATA-SOURCE] Step 2 (Company Data) — SERVING FROM LIVE API — bvdId=${bvdId}`);
     // ── End cache check — no cache hit, fall through to live API below ──
 
     const endpoint = `https://api.bvdinfo.com/v1/orbis/Companies/data`;
@@ -1044,20 +1040,17 @@ export const getGridData = async (req, res) => {
 
     const { orgName, sessionId, ensId, city, bvdId, country } = req.query;
 
-    // ── Pre-fetched cache check ── see getOrbisCompanyData for the full
-    // explanation. Placed before ensureValidToken() below since a cache
-    // hit doesn't need a live Grid API token at all.
+    // ── Pre-fetched cache check ── placed before ensureValidToken() below
+    // since a cache hit doesn't need a live Grid API token at all.
     // NOTE: orbis_master_data's grid_event_*/grid_legal columns already
     // hold the MERGED result of both grid-by-name (this function) and
-    // grid-by-id (getGridDataOrganizationWithId) lookups — see
-    // format_orbis_master_data() in data_moodys.py. Both cache-hit paths
-    // therefore write the same merged data; the second call is a
-    // harmless no-op overwrite of identical values, matching how the
-    // live-API versions of these two calls already converge on the same
-    // external_supplier_data columns.
+    // grid-by-id (getGridDataOrganizationWithId) lookups. Both cache-hit
+    // paths therefore write the same merged data; the second call is a
+    // harmless no-op overwrite of identical values.
+    console.log(`[DATA-SOURCE] Step 5 (Grid Data by name) — checking cache before calling live API — bvdId=${bvdId}`);
     const cachedCompanyData = await getCachedOrbisMasterData(bvdId);
     if (cachedCompanyData) {
-        console.log(`getGridData: cache hit for bvdId=${bvdId}, using pre-fetched data`);
+        console.log(`[DATA-SOURCE] Step 5 (Grid Data by name) — SERVING FROM DATABASE — live API call skipped — bvdId=${bvdId}`);
         const response = {
             grid_event_sanctions: matchLiveApiJsonFormat(cachedCompanyData.grid_event_sanctions),
             grid_event_regulatory: matchLiveApiJsonFormat(cachedCompanyData.grid_event_regulatory),
@@ -1084,9 +1077,11 @@ export const getGridData = async (req, res) => {
                     : { success: false, message: updatedResponse.message, data: false, adv_count: 0 }
             );
         } catch (error) {
+            console.log(`[DATA-SOURCE] Step 5 (Grid Data by name) — DB write of cached data THREW an error — bvdId=${bvdId}:`, error);
             return res.status(500).json({ success: false, error: 'Internal server error.', details: error.message, data: false, adv_count: 0 });
         }
     }
+    console.log(`[DATA-SOURCE] Step 5 (Grid Data by name) — SERVING FROM LIVE API — bvdId=${bvdId}`);
     // ── End cache check ──
 
     // Ensure token is valid before making request
@@ -1327,10 +1322,10 @@ export const getOrbisGridData = async (req, res) => {
         return res.status(400).json({success:false, error: 'Missing required query parameters: orgName, reportingId, trackingId, city', data:false, adv_count:0 });
     }
 
-    // ── Pre-fetched cache check ── see getOrbisCompanyData for the full explanation.
+    console.log(`[DATA-SOURCE] Step 4 (Orbis Grid Data) — checking cache before calling live API — bvdId=${bvdId}`);
     const cachedCompanyData = await getCachedOrbisMasterData(bvdId);
     if (cachedCompanyData) {
-        console.log(`getOrbisGridData: cache hit for bvdId=${bvdId}, using pre-fetched data`);
+        console.log(`[DATA-SOURCE] Step 4 (Orbis Grid Data) — SERVING FROM DATABASE — live API call skipped — bvdId=${bvdId}`);
         const response = {
             event_sanctions: matchLiveApiJsonFormat(cachedCompanyData.event_sanctions),
             event_regulatory: matchLiveApiJsonFormat(cachedCompanyData.event_regulatory),
@@ -1353,9 +1348,11 @@ export const getOrbisGridData = async (req, res) => {
             const updatedResponse = await updateTable(tableName, response, ensId, sessionId);
             return res.status(200).json({ success: true, message: "Successfully Updated Information (from cache)", data: updatedResponse.data, adv_count: count });
         } catch (error) {
+            console.log(`[DATA-SOURCE] Step 4 (Orbis Grid Data) — DB write of cached data THREW an error — bvdId=${bvdId}:`, error);
             return res.status(409).json({ success: false, message: error.message, data: false, adv_count: 0 });
         }
     }
+    console.log(`[DATA-SOURCE] Step 4 (Orbis Grid Data) — SERVING FROM LIVE API — bvdId=${bvdId}`);
     // ── End cache check ──
 
     const endpoint = `https://api.bvdinfo.com/v1/orbis/gridreview/data`;
@@ -1464,15 +1461,10 @@ export const getOrbisGridData = async (req, res) => {
 
     const { personnelName, sessionId, ensId, contactId, country, city, managementInfo } = req.body;
 
-    // ── Pre-fetched cache check ──────────────────────────────────────
-    // grid_management_master (keyed globally on contact_id, unlike the
-    // production grid_management table which is keyed per
-    // (ens_id, contact_id, session_id)) is populated by the same
-    // PythonProject batch script. See getOrbisCompanyData for the full
-    // explanation of the caching approach.
+    console.log(`[DATA-SOURCE] Step 7 (Grid Personnel) — checking cache before calling live API — contactId=${contactId}`);
     const cachedPersonnelData = await getCachedGridManagementData(contactId);
     if (cachedPersonnelData) {
-        console.log(`getGridDataPersonnels: cache hit for contactId=${contactId}, using pre-fetched data`);
+        console.log(`[DATA-SOURCE] Step 7 (Grid Personnel) — SERVING FROM DATABASE — live API call skipped — contactId=${contactId}`);
         const grid_sanctions = matchLiveApiJsonFormat(cachedPersonnelData.grid_sanctions);
         const grid_regulatory = matchLiveApiJsonFormat(cachedPersonnelData.grid_regulatory);
         const grid_bribery_fraud_corruption = matchLiveApiJsonFormat(cachedPersonnelData.grid_bribery_fraud_corruption);
@@ -1480,11 +1472,6 @@ export const getOrbisGridData = async (req, res) => {
         const grid_adverse_media_other_crimes = matchLiveApiJsonFormat(cachedPersonnelData.grid_adverse_media_other_crimes);
         const grid_adverse_media_reputational_risk = matchLiveApiJsonFormat(cachedPersonnelData.grid_adverse_media_reputational_risk);
         const grid_legal = matchLiveApiJsonFormat(cachedPersonnelData.grid_legal);
-        // management_info from the cache is used as a fallback only —
-        // the live request's own managementInfo (passed in from the
-        // orchestration, reflecting this specific session's company
-        // data) is authoritative when present, same as the live-API
-        // path would naturally produce.
         const management_info_value = managementInfo ?? matchLiveApiJsonFormat(cachedPersonnelData.management_info);
 
         try {
@@ -1525,10 +1512,12 @@ export const getOrbisGridData = async (req, res) => {
             console.log("----Ended Grid Personnel (from cache)----")
             return res.status(200).json({ success: true, message: "Successfully saved data (from cache)", data: result.rows, adv_count: count });
         } catch (error) {
+            console.log(`[DATA-SOURCE] Step 7 (Grid Personnel) — DB write of cached data THREW an error — contactId=${contactId}:`, error);
             console.log("----Error(409) Grid Personnel (cache path):----", error)
             return res.status(409).json({ success: false, message: error.message, data: "couldnt save data", adv_count: 0 });
         }
     }
+    console.log(`[DATA-SOURCE] Step 7 (Grid Personnel) — SERVING FROM LIVE API — contactId=${contactId}`);
     // ── End cache check ──
 
     // Ensure token is valid before making request
@@ -1721,12 +1710,10 @@ export const getGridDataOrganizationWithId = async (req, res) => {
       return res.status(400).json({ success: false, data: false,error: 'Missing required query parameters.', adv_count:0 });
   }
 
-  // ── Pre-fetched cache check ── see getOrbisCompanyData / getGridData
-  // for the full explanation (same merged grid_event_*/grid_legal
-  // source as the by-name lookup above).
+  console.log(`[DATA-SOURCE] Step 6 (Grid Data by ID) — checking cache before calling live API — bvdId=${bvdId}`);
   const cachedCompanyData = await getCachedOrbisMasterData(bvdId);
   if (cachedCompanyData) {
-      console.log(`getGridDataOrganizationWithId: cache hit for bvdId=${bvdId}, using pre-fetched data`);
+      console.log(`[DATA-SOURCE] Step 6 (Grid Data by ID) — SERVING FROM DATABASE — live API call skipped — bvdId=${bvdId}`);
       const categorizedData = {
           grid_event_sanctions: matchLiveApiJsonFormat(cachedCompanyData.grid_event_sanctions),
           grid_event_regulatory: matchLiveApiJsonFormat(cachedCompanyData.grid_event_regulatory),
@@ -1753,9 +1740,11 @@ export const getGridDataOrganizationWithId = async (req, res) => {
                   : { success: false, message: updatedResponse.message, data: updatedResponse.data }
           );
       } catch (error) {
+          console.log(`[DATA-SOURCE] Step 6 (Grid Data by ID) — DB write of cached data THREW an error — bvdId=${bvdId}:`, error);
           return res.status(500).json({ success: true, error: 'Internal server error.', details: error.message, data: false});
       }
   }
+  console.log(`[DATA-SOURCE] Step 6 (Grid Data by ID) — SERVING FROM LIVE API — bvdId=${bvdId}`);
   // ── End cache check ──
 
   // Ensure token is valid before making request
@@ -1927,10 +1916,10 @@ export const getGridDataPersonnelWithId = async (req, res) => {
 export const getOrbisNews = async (req, res) => {
     const { bvdId, sessionId, ensId} = req.query;
 
-    // ── Pre-fetched cache check ── see getOrbisCompanyData for the full explanation.
+    console.log(`[DATA-SOURCE] Step 3 (Orbis News) — checking cache before calling live API — bvdId=${bvdId}`);
     const cachedCompanyData = await getCachedOrbisMasterData(bvdId);
     if (cachedCompanyData) {
-        console.log(`getOrbisNews: cache hit for bvdId=${bvdId}, using pre-fetched data`);
+        console.log(`[DATA-SOURCE] Step 3 (Orbis News) — SERVING FROM DATABASE — live API call skipped — bvdId=${bvdId}`);
         const response = {
             orbis_news: matchLiveApiJsonFormat(cachedCompanyData.orbis_news),
         };
@@ -1939,9 +1928,11 @@ export const getOrbisNews = async (req, res) => {
             const insertedResponse = await updateTable(tableName, response, ensId, sessionId);
             return res.status(200).json({ success: true, message: "Successfully saved data (from cache)", data: insertedResponse });
         } catch (error) {
+            console.log(`[DATA-SOURCE] Step 3 (Orbis News) — DB write of cached data THREW an error — bvdId=${bvdId}:`, error);
             return res.status(409).json({ success: false, message: error.message, data: false });
         }
     }
+    console.log(`[DATA-SOURCE] Step 3 (Orbis News) — SERVING FROM LIVE API — bvdId=${bvdId}`);
     // ── End cache check ──
 
     const endpoint = "https://api.bvdinfo.com/v1/orbis/news/data";

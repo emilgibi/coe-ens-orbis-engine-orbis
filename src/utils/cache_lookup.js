@@ -8,26 +8,30 @@ import pool from '../config/db.js';
  *
  * orbis_master_data is populated by the standalone PythonProject batch
  * script (data_moodys.py + db_utils.py), pointed at this same DB, ahead
- * of the live Moody's Orbis API access being retired. Its columns are a
- * near-exact field-for-field match to what getOrbisCompanyData /
- * getOrbisNews / getOrbisGridData / getGridData / getGridDataOrganizationWithId
- * build from the live API, by design — the Python script mirrors this
- * controller's own output field names.
+ * of the live Moody's Orbis API access being retired.
  *
- * Returns null if no row is found (or on any DB error) — every caller
- * treats that as "no cache, fall through to the live API call", so a
- * missing cache entry can never block normal live-API operation.
+ * Every log line here uses the "[DATA-SOURCE]" prefix — grep for that to
+ * get a clean audit trail of every decision made, hit or miss, across
+ * every function that uses this helper.
  */
 export async function getCachedOrbisMasterData(bvdId) {
-  if (!bvdId) return null;
+  if (!bvdId) {
+    console.log('[DATA-SOURCE] ⚠️  no bvdId provided — cannot check cache, will require live API');
+    return null;
+  }
   try {
     const result = await pool.query(
       'SELECT * FROM orbis_master_data WHERE bvd_id = $1 LIMIT 1',
       [bvdId],
     );
-    return result.rows[0] || null;
+    if (result.rows[0]) {
+      console.log(`[DATA-SOURCE] ✅ CACHE HIT  — orbis_master_data — bvdId=${bvdId}`);
+      return result.rows[0];
+    }
+    console.log(`[DATA-SOURCE] ❌ CACHE MISS — orbis_master_data — bvdId=${bvdId} — no pre-fetched row, will call live API`);
+    return null;
   } catch (error) {
-    console.error('cache_lookup: failed to query orbis_master_data:', error);
+    console.error(`[DATA-SOURCE] 🛑 CACHE LOOKUP ERROR — orbis_master_data — bvdId=${bvdId} — falling back to live API:`, error);
     return null;
   }
 }
@@ -38,15 +42,23 @@ export async function getCachedOrbisMasterData(bvdId) {
  * equivalent of getCachedOrbisMasterData above.
  */
 export async function getCachedGridManagementData(contactId) {
-  if (!contactId) return null;
+  if (!contactId) {
+    console.log('[DATA-SOURCE] ⚠️  no contactId provided — cannot check cache, will require live API');
+    return null;
+  }
   try {
     const result = await pool.query(
       'SELECT * FROM grid_management_master WHERE contact_id = $1 LIMIT 1',
       [contactId],
     );
-    return result.rows[0] || null;
+    if (result.rows[0]) {
+      console.log(`[DATA-SOURCE] ✅ CACHE HIT  — grid_management_master — contactId=${contactId}`);
+      return result.rows[0];
+    }
+    console.log(`[DATA-SOURCE] ❌ CACHE MISS — grid_management_master — contactId=${contactId} — no pre-fetched row, will call live API`);
+    return null;
   } catch (error) {
-    console.error('cache_lookup: failed to query grid_management_master:', error);
+    console.error(`[DATA-SOURCE] 🛑 CACHE LOOKUP ERROR — grid_management_master — contactId=${contactId} — falling back to live API:`, error);
     return null;
   }
 }
